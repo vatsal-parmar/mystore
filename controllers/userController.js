@@ -134,3 +134,133 @@ exports.resetPassword = BigPromise(async (req, res, next) => {
 
   cookieToken(user, res);
 });
+
+exports.getLoggedInUserDetails = BigPromise(async (req, res, next) => {
+  const user = await User.findById(req.user._id);
+
+  res.status(200).json({ success: true, user });
+});
+
+exports.changePassword = BigPromise(async (req, res, next) => {
+  const userId = req.user._id;
+
+  const user = await User.findById(userId).select('+password');
+
+  const isCorrectOldPassword = await user.isPasswordValid(req.body.oldPassword);
+
+  if (!isCorrectOldPassword) {
+    return next(new CustomError('Incorrect Password', 400));
+  }
+
+  user.password = req.body.password;
+
+  await user.save();
+
+  cookieToken(user, res);
+});
+
+exports.updateUserDetails = BigPromise(async (req, res, next) => {
+  const userId = req.user._id;
+
+  const newData = {
+    name: req.body.name,
+    email: req.body.email,
+  };
+
+  if (req.files?.image) {
+    const user = await User.findById(userId);
+    const imageId = user.image.id;
+
+    // deleting old image
+    const response = await cloudinary.v2.uploader.destroy(imageId);
+
+    // uploading new image
+    const result = await cloudinary.v2.uploader.upload(
+      req.files.image.tempFilePath,
+      {
+        folder: 'users',
+        width: 150,
+        crop: 'scale',
+      }
+    );
+
+    newData.image = {
+      id: result.public_id,
+      secure_url: result.secure_url,
+    };
+  }
+
+  const user = await User.findByIdAndUpdate(userId, newData, {
+    new: true,
+    runValidators: true,
+    useFindAndModify: false,
+  });
+
+  res.status(200).json({ success: true, user });
+});
+
+exports.adminAllUser = BigPromise(async (req, res, next) => {
+  const users = await User.find();
+  res.status(200).json({
+    success: true,
+    users,
+  });
+});
+
+exports.adminOneUser = BigPromise(async (req, res, next) => {
+  const user = await User.findById(req.params.id);
+
+  if (!user) {
+    next(new CustomError('No user found', 400));
+  }
+
+  res.status(200).json({
+    success: true,
+    user,
+  });
+});
+
+exports.adminUpdateUserDetails = BigPromise(async (req, res, next) => {
+  const userId = req.params.id;
+
+  const newData = {
+    name: req.body.name,
+    email: req.body.email,
+    role: req.body.role,
+  };
+
+  const user = await User.findByIdAndUpdate(userId, newData, {
+    new: true,
+    runValidators: true,
+    useFindAndModify: false,
+  });
+
+  res.status(200).json({ success: true, user });
+});
+
+exports.adminDeleteOneUser = BigPromise(async (req, res, next) => {
+  const userId = req.params.id;
+
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return next(new CustomError('User not found', 401));
+  }
+
+  const imageId = user.image.id;
+
+  await cloudinary.v2.uploader.destroy(imageId);
+
+  await user.remove();
+
+  res.status(200).json({ success: true });
+});
+
+exports.managerAllUser = BigPromise(async (req, res, next) => {
+  const users = await User.find({ role: 'user' });
+
+  res.status(200).json({
+    success: true,
+    users,
+  });
+});
